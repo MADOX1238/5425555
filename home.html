@@ -1,0 +1,179 @@
+<!doctype html>
+<html lang="ar">
+  <head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>الصفحة الرئيسية - Spherely</title>
+    <style>
+      /* إضافة التنسيقات الجديدة الخاصة بالصورة */
+      .image-upload-container {
+        margin-top: 20px;
+      }
+
+      .image-preview {
+        max-width: 100%;
+        margin-top: 10px;
+        display: none;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="navbar">
+      Spherely
+    </div>
+    <div class="container">
+      <textarea id="postContent" class="post-input" placeholder="اكتب منشورك هنا..."></textarea>
+      
+      <!-- قسم تحميل الصورة -->
+      <div class="image-upload-container">
+        <input type="file" id="imageInput" accept="image/*">
+        <img id="imagePreview" class="image-preview">
+      </div>
+      
+      <button id="postButton" class="post-button">نشر</button>
+      <div id="postsContainer" class="posts"></div>
+    </div>
+
+    <script type="module">
+      import { initializeApp } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-app.js";
+      import { getDatabase, ref, push, onValue, update } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-database.js";
+      import { getStorage, ref as storageRef, uploadBytes, getDownloadURL } from "https://www.gstatic.com/firebasejs/11.0.2/firebase-storage.js";
+
+      // تهيئة Firebase
+      const firebaseConfig = {
+        apiKey: "AIzaSyD2i7QSJMpN_GUH44s6FCa4FPd4CcacjQU",
+        authDomain: "aslaa-aadd9.firebaseapp.com",
+        databaseURL: "https://aslaa-aadd9-default-rtdb.firebaseio.com",
+        projectId: "aslaa-aadd9",
+        storageBucket: "aslaa-aadd9.firebasestorage.app",
+        messagingSenderId: "862690377553",
+        appId: "1:862690377553:web:1addb4ee0d8b4a5f589d70",
+        measurementId: "G-RKNKL008R3"
+      };
+
+      const app = initializeApp(firebaseConfig);
+      const database = getDatabase(app);
+      const storage = getStorage(app);
+
+      // التحقق من تسجيل الدخول
+      const loggedIn = localStorage.getItem('loggedIn');
+      const username = localStorage.getItem('username');
+
+      if (!loggedIn || !username) {
+        alert('خطأ: يجب تسجيل الدخول للوصول إلى هذه الصفحة.');
+        window.location.href = 'login.html';
+      }
+
+      // عناصر الصفحة
+      const postButton = document.getElementById('postButton');
+      const postContent = document.getElementById('postContent');
+      const postsContainer = document.getElementById('postsContainer');
+      const imageInput = document.getElementById('imageInput');
+      const imagePreview = document.getElementById('imagePreview');
+
+      let selectedImage = null;
+
+      // معاينة الصورة بعد اختيارها
+      imageInput.addEventListener('change', (event) => {
+        const file = event.target.files[0];
+        if (file) {
+          const reader = new FileReader();
+          reader.onload = () => {
+            imagePreview.src = reader.result;
+            imagePreview.style.display = 'block';
+            selectedImage = file;
+          };
+          reader.readAsDataURL(file);
+        }
+      });
+
+      // نشر المنشور إلى Firebase مع الصورة
+      postButton.addEventListener('click', () => {
+        const content = postContent.value.trim();
+
+        if (content === '') {
+          alert('المنشور لا يمكن أن يكون فارغاً!');
+          return;
+        }
+
+        let postData = { username, content, timestamp: new Date().toISOString(), likes: 0, dislikes: 0, reactions: {} };
+
+        // رفع الصورة إلى Firebase Storage إذا تم اختيار صورة
+        if (selectedImage) {
+          const imageRef = storageRef(storage, 'post-images/' + selectedImage.name);
+          uploadBytes(imageRef, selectedImage).then((snapshot) => {
+            getDownloadURL(snapshot.ref).then((downloadURL) => {
+              postData.imageUrl = downloadURL;
+
+              // إضافة المنشور إلى Firebase
+              const postRef = ref(database, 'posts');
+              push(postRef, postData);
+            });
+          });
+        } else {
+          // إضافة المنشور بدون صورة إلى Firebase
+          const postRef = ref(database, 'posts');
+          push(postRef, postData);
+        }
+
+        postContent.value = '';
+        imagePreview.style.display = 'none'; // إخفاء الصورة المعاينة بعد النشر
+        selectedImage = null; // إعادة تعيين الصورة
+      });
+
+      // عرض المنشورات من Firebase
+      const postsRef = ref(database, 'posts');
+      onValue(postsRef, (snapshot) => {
+        const posts = [];
+        snapshot.forEach((childSnapshot) => {
+          const key = childSnapshot.key;
+          const postData = childSnapshot.val();
+          posts.push({ key, ...postData });
+        });
+
+        posts.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+
+        postsContainer.innerHTML = '';
+        posts.forEach((postData) => {
+          const postElement = document.createElement('div');
+          postElement.classList.add('post');
+
+          const usernameElement = document.createElement('div');
+          usernameElement.classList.add('username');
+          usernameElement.textContent = postData.username;
+
+          const contentElement = document.createElement('div');
+          contentElement.textContent = postData.content;
+
+          const timestampElement = document.createElement('div');
+          const timestamp = new Date(postData.timestamp);
+          timestampElement.classList.add('timestamp');
+          timestampElement.textContent = `منذ ${getTimeAgo(timestamp)}`;
+
+          // إضافة الصورة إذا كانت موجودة
+          if (postData.imageUrl) {
+            const imageElement = document.createElement('img');
+            imageElement.src = postData.imageUrl;
+            imageElement.classList.add('image-preview');
+            postElement.appendChild(imageElement);
+          }
+
+          postElement.appendChild(usernameElement);
+          postElement.appendChild(contentElement);
+          postElement.appendChild(timestampElement);
+
+          postsContainer.appendChild(postElement);
+        });
+      });
+
+      function getTimeAgo(date) {
+        const now = new Date();
+        const diff = Math.floor((now - date) / 1000);
+        if (diff < 60) return `${diff} ثانية`;
+        if (diff < 3600) return `${Math.floor(diff / 60)} دقيقة`;
+        if (diff < 86400) return `${Math.floor(diff / 3600)} ساعة`;
+        return `${Math.floor(diff / 86400)} يوم`;
+      }
+    </script>
+  
+</body></html>
